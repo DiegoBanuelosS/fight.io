@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Fight.IO — Arena Combat</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+    <!-- ======== MENU ======== -->
+    <div id="menu-screen" class="screen active">
+        <h1 class="title">FIGHT<span class="accent">.IO</span></h1>
+
+        <div class="selection-area">
+            <h2>PERSONAJE</h2>
+            <div class="select-grid">
+                <div class="char-option selected" data-color="green">
+                    <img src="PNG/Double (128px)/Characters/green_character.png" /><span>Verde</span>
+                </div>
+                <div class="char-option" data-color="purple">
+                    <img src="PNG/Double (128px)/Characters/purple_character.png" /><span>Morado</span>
+                </div>
+                <div class="char-option" data-color="red">
+                    <img src="PNG/Double (128px)/Characters/red_character.png" /><span>Rojo</span>
+                </div>
+                <div class="char-option" data-color="yellow">
+                    <img src="PNG/Double (128px)/Characters/yellow_character.png" /><span>Amarillo</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="selection-area">
+            <h2>ARMA</h2>
+            <div class="select-grid weapons">
+                <div class="weapon-option selected" data-weapon="weapon_sword">
+                    <img src="PNG/Double (128px)/Items/weapon_sword.png" /><span>Espada</span>
+                </div>
+                <div class="weapon-option" data-weapon="weapon_axe">
+                    <img src="PNG/Double (128px)/Items/weapon_axe.png" /><span>Hacha</span>
+                </div>
+                <div class="weapon-option" data-weapon="weapon_hammer">
+                    <img src="PNG/Double (128px)/Items/weapon_hammer.png" /><span>Martillo</span>
+                </div>
+                <div class="weapon-option" data-weapon="weapon_longsword">
+                    <img src="PNG/Double (128px)/Items/weapon_longsword.png" /><span>Mandoble</span>
+                </div>
+                <div class="weapon-option" data-weapon="weapon_spear">
+                    <img src="PNG/Double (128px)/Items/weapon_spear.png" /><span>Lanza</span>
+                </div>
+                <div class="weapon-option" data-weapon="weapon_dagger">
+                    <img src="PNG/Double (128px)/Items/weapon_dagger.png" /><span>Daga</span>
+                </div>
+                <div class="weapon-option" data-weapon="weapon_axe_double">
+                    <img src="PNG/Double (128px)/Items/weapon_axe_double.png" /><span>Hacha Doble</span>
+                </div>
+                <div class="weapon-option" data-weapon="weapon_staff">
+                    <img src="PNG/Double (128px)/Items/weapon_staff.png" /><span>Bastón</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- MODE BUTTONS -->
+        <div class="mode-buttons">
+            <button id="start-btn" class="btn">JUGAR SOLO</button>
+            <div class="coop-toggle">
+                <button id="coop-btn" class="btn secondary">CO-OP LOCAL</button>
+            </div>
+            <button id="online-btn" class="btn online-btn">CO-OP ONLINE</button>
+            <button id="training-btn" class="btn training-btn">🤖 ENTRENAR IA</button>
+        </div>
+
+        <!-- P2 Selection (Local Co-op) -->
+        <div id="p2-selection" class="hidden">
+            <p class="p2-label">JUGADOR 2</p>
+            <div class="select-grid">
+                <div class="char-option p2-char" data-color="green">
+                    <img src="PNG/Double (128px)/Characters/green_character.png" /><span>Verde</span>
+                </div>
+                <div class="char-option p2-char selected" data-color="purple">
+                    <img src="PNG/Double (128px)/Characters/purple_character.png" /><span>Morado</span>
+                </div>
+                <div class="char-option p2-char" data-color="red">
+                    <img src="PNG/Double (128px)/Characters/red_character.png" /><span>Rojo</span>
+                </div>
+                <div class="char-option p2-char" data-color="yellow">
+                    <img src="PNG/Double (128px)/Characters/yellow_character.png" /><span>Amarillo</span>
+                </div>
+            </div>
+            <div class="select-grid weapons">
+                <div class="weapon-option p2-weap" data-weapon="weapon_sword">
+                    <img src="PNG/Double (128px)/Items/weapon_sword.png" /><span>Espada</span>
+                </div>
+                <div class="weapon-option p2-weap selected" data-weapon="weapon_axe">
+                    <img src="PNG/Double (128px)/Items/weapon_axe.png" /><span>Hacha</span>
+                </div>
+                <div class="weapon-option p2-weap" data-weapon="weapon_hammer">
+                    <img src="PNG/Double (128px)/Items/weapon_hammer.png" /><span>Martillo</span>
+                </div>
+                <div class="weapon-option p2-weap" data-weapon="weapon_longsword">
+                    <img src="PNG/Double (128px)/Items/weapon_longsword.png" /><span>Mandoble</span>
+                </div>
+                <div class="weapon-option p2-weap" data-weapon="weapon_spear">
+                    <img src="PNG/Double (128px)/Items/weapon_spear.png" /><span>Lanza</span>
+                </div>
+                <div class="weapon-option p2-weap" data-weapon="weapon_dagger">
+                    <img src="PNG/Double (128px)/Items/weapon_dagger.png" /><span>Daga</span>
+                </div>
+            </div>
+            <p class="p2-controls-hint">Flechas = mover | Enter = dash | / = recoger</p>
+        </div>
+
+        <!-- Online Room Dialog -->
+        <div id="online-dialog" class="hidden">
+            <p class="online-label">🌐 CO-OP ONLINE</p>
+            <div class="online-actions">
+                <button id="create-room-btn" class="btn">CREAR SALA</button>
+                <div class="online-join-row">
+                    <input type="text" id="room-code-input" placeholder="CÓDIGO" maxlength="4" />
+                    <button id="join-room-btn" class="btn secondary">UNIRSE</button>
+                </div>
+            </div>
+            <div id="room-status" class="hidden">
+                <p id="room-status-text">Conectando...</p>
+                <p id="room-code-display" class="hidden">Código: <span id="room-code-value"></span></p>
+                <div id="room-lobby-list"></div>
+                <button id="start-online-btn" class="btn hidden">INICIAR PARTIDA</button>
+            </div>
+            <button id="cancel-online-btn" class="btn secondary cancel-btn">CANCELAR</button>
+        </div>
+    </div>
+
+    <!-- ======== GAME SCREEN ======== -->
+    <div id="game-screen" class="screen">
+        <canvas id="gameCanvas"></canvas>
+
+        <!-- HUD -->
+        <div id="hud">
+            <div id="hud-left">
+                <div class="hud-hp">
+                    <span id="hp-label">P1 HP</span>
+                    <div class="hp-bar-bg"><div class="hp-bar" id="hp-bar"></div></div>
+                    <span id="hp-text">100</span>
+                </div>
+            </div>
+            <div id="hud-center"></div>
+            <div id="hud-right">
+                <span id="wave-label">Oleada <span id="wave-num">0</span></span>
+                <span id="score-label">Puntos <span id="score-num">0</span></span>
+                <span id="kills-label">Kills <span id="kills-num">0</span></span>
+            </div>
+        </div>
+
+        <!-- P2 HUD (co-op) -->
+        <div id="hud-p2" class="hidden">
+            <div class="hud-hp p2-hp">
+                <span>P2</span>
+                <div class="hp-bar-bg"><div class="hp-bar p2" id="hp-bar-p2"></div></div>
+                <span id="hp-text-p2">100</span>
+            </div>
+        </div>
+
+        <!-- Boss HUD -->
+        <div id="boss-hud" class="hidden">
+            <span id="boss-name">JEFE</span>
+            <div class="boss-hp-bg"><div class="boss-hp-fill" id="boss-hp-bar"></div></div>
+        </div>
+
+        <!-- Power-up indicators -->
+        <div id="powerup-indicators"></div>
+
+        <!-- Wave announcement -->
+        <div id="wave-announce" class="hidden">
+            <span id="wave-announce-text">Oleada 1!</span>
+        </div>
+
+        <!-- Pickup hint -->
+        <div id="pickup-hint" class="hidden">Presiona <b>E</b> para recoger</div>
+
+        <!-- Online connection status -->
+        <div id="net-status" class="hidden">
+            <span id="net-status-text">🌐 En línea</span>
+        </div>
+
+        <!-- Online players list (top-right) -->
+        <div id="online-players-list" class="hidden"></div>
+    </div>
+
+    <!-- ======== TRAINING SCREEN ======== -->
+    <div id="training-screen" class="screen">
+        <canvas id="trainingCanvas"></canvas>
+
+        <!-- Training HUD -->
+        <div id="training-hud">
+            <div class="training-title">🤖 ENTRENAMIENTO IA</div>
+
+            <!-- Map selector -->
+            <div class="training-section">
+                <p class="train-section-label">🗺️ MAPA</p>
+                <div id="train-map-grid" class="train-select-grid"></div>
+            </div>
+
+            <!-- Method selector -->
+            <div class="training-section">
+                <p class="train-section-label">⚔️ MÉTODO</p>
+                <div id="train-method-grid" class="train-select-grid"></div>
+            </div>
+
+            <div class="training-stats">
+                <p>Episodios: <span id="train-episodes">0</span></p>
+                <p>Estados: <span id="train-states">0</span>/324</p>
+                <p>Épsilon: <span id="train-epsilon">0.25</span></p>
+                <p>Recompensa: <span id="train-reward">0</span></p>
+                <p>Ronda: <span id="train-round">0</span></p>
+                <p>Actualizaciones: <span id="train-updates">0</span></p>
+                <p>Mapa: <span id="train-map-name">Clásica</span></p>
+                <p>Método: <span id="train-method-name">2v2 Equipos</span></p>
+                <p id="train-save-status" style="color:#4ecdc4;font-size:0.35rem;margin-top:4px;">💾 Guardado automático</p>
+            </div>
+            <div class="training-speed">
+                <span>Velocidad:</span>
+                <button class="speed-btn active" data-speed="1">1x</button>
+                <button class="speed-btn" data-speed="3">3x</button>
+                <button class="speed-btn" data-speed="5">5x</button>
+                <button class="speed-btn" data-speed="10">10x</button>
+            </div>
+            <div class="training-controls">
+                <button id="train-reset-btn" class="btn secondary">REINICIAR Q-TABLE</button>
+                <button id="train-back-btn" class="btn secondary">VOLVER AL MENÚ</button>
+            </div>
+        </div>
+
+        <!-- Map legend (bottom right) -->
+        <div id="train-legend">
+            <div class="legend-item"><span class="legend-swatch" style="background:rgba(255,60,0,0.5)"></span> Lava (daño)</div>
+            <div class="legend-item"><span class="legend-swatch" style="background:rgba(30,100,220,0.5)"></span> Agua (lento)</div>
+            <div class="legend-item"><span class="legend-swatch" style="background:rgba(120,120,120,0.5)"></span> Pinchos (daño)</div>
+            <div class="legend-item"><span class="legend-swatch" style="background:rgba(50,220,80,0.4)"></span> Curación</div>
+        </div>
+    </div>
+
+    <!-- ======== GAME OVER ======== -->
+    <div id="gameover-screen" class="screen">
+        <h1 class="gameover">FIN DEL JUEGO</h1>
+        <div class="stats">
+            <p>Oleada: <span id="final-wave">0</span></p>
+            <p>Puntuación: <span id="final-score">0</span></p>
+            <p>Kills: <span id="final-kills">0</span></p>
+        </div>
+        <div id="name-input-container">
+            <input type="text" id="player-name" placeholder="Tu nombre" maxlength="20" />
+            <button id="submit-score-btn" class="btn secondary">GUARDAR PUNTUACIÓN</button>
+        </div>
+        <div id="leaderboard-container" class="hidden">
+            <h2 class="leaderboard-title">🏆 LEADERBOARD</h2>
+            <table id="leaderboard-table">
+                <thead>
+                    <tr><th>#</th><th>Nombre</th><th>Puntos</th><th>Oleada</th><th>Kills</th></tr>
+                </thead>
+                <tbody id="leaderboard-body"></tbody>
+            </table>
+        </div>
+        <div id="server-stats" class="hidden">
+            <p>Partidas totales: <span id="stat-total-games">0</span> | 
+               Kills totales: <span id="stat-total-kills">0</span> | 
+               Récord: <span id="stat-max-score">0</span></p>
+        </div>
+        <button id="restart-btn" class="btn">REINTENTAR</button>
+        <button id="menu-btn" class="btn secondary">MENÚ</button>
+    </div>
+
+    <script src="js/game.js"></script>
+</body>
+</html>
