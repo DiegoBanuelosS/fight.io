@@ -110,7 +110,7 @@ public class GameServer {
             System.out.println("[QTable] Sent Q-table to client (" + qTableJson.length() + " bytes)");
 
         } else if ("POST".equalsIgnoreCase(exchange.getRequestMethod())) {
-            String body = new String(exchange.getRequestBody().readAllBytes());
+            String body = new String(readAllBytes(exchange.getRequestBody()));
             try {
                 // Extract "q" and "stats" from the posted JSON
                 int qStart = body.indexOf("\"q\":");
@@ -285,7 +285,7 @@ public class GameServer {
         try {
             Path path = Paths.get(QTABLE_FILE);
             if (Files.exists(path)) {
-                String content = Files.readString(path);
+                String content = new String(Files.readAllBytes(path), java.nio.charset.StandardCharsets.UTF_8);
                 String q = extractJsonObject(content, "q");
                 String stats = extractJsonObject(content, "stats");
                 if (q != null) qTableJson = q;
@@ -302,7 +302,7 @@ public class GameServer {
     private static void saveQTableToDisk() {
         try {
             String content = "{\"q\":" + qTableJson + ",\"stats\":" + qStatsJson + "}";
-            Files.writeString(Paths.get(QTABLE_FILE), content);
+            Files.write(Paths.get(QTABLE_FILE), content.getBytes(java.nio.charset.StandardCharsets.UTF_8));
         } catch (Exception e) {
             System.out.println("[QTable] Error saving to disk: " + e.getMessage());
         }
@@ -330,14 +330,14 @@ public class GameServer {
             sendJson(exchange, 200, json);
 
         } else if ("POST".equalsIgnoreCase(exchange.getRequestMethod())) {
-            String body = new String(exchange.getRequestBody().readAllBytes());
+            String body = new String(readAllBytes(exchange.getRequestBody()));
             try {
                 String name = extractJsonString(body, "name");
                 int score = extractJsonInt(body, "score");
                 int wave = extractJsonInt(body, "wave");
                 int kills = extractJsonInt(body, "kills");
 
-                if (name == null || name.isBlank()) name = "Anonimo";
+                if (name == null || name.trim().isEmpty()) name = "Anonimo";
                 if (name.length() > 20) name = name.substring(0, 20);
 
                 ScoreEntry entry = new ScoreEntry(name, score, wave, kills);
@@ -420,7 +420,7 @@ public class GameServer {
 
         try (InputStream is = new FileInputStream(file);
              OutputStream os = exchange.getResponseBody()) {
-            is.transferTo(os);
+            transfer(is, os);
         }
     }
 
@@ -483,6 +483,7 @@ public class GameServer {
         return json.substring(startQuote + 1, endQuote);
     }
 
+
     private static int extractJsonInt(String json, String key) {
         String pattern = "\"" + key + "\"";
         int idx = json.indexOf(pattern);
@@ -496,5 +497,24 @@ public class GameServer {
             else if (sb.length() > 0) break;
         }
         return sb.length() > 0 ? Integer.parseInt(sb.toString()) : 0;
+    }
+
+    // Java 8 Helpers
+    private static byte[] readAllBytes(InputStream is) throws IOException {
+        ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+        int nRead;
+        byte[] data = new byte[1024];
+        while ((nRead = is.read(data, 0, data.length)) != -1) {
+            buffer.write(data, 0, nRead);
+        }
+        return buffer.toByteArray();
+    }
+
+    private static void transfer(InputStream is, OutputStream os) throws IOException {
+        byte[] buffer = new byte[8192];
+        int read;
+        while ((read = is.read(buffer, 0, 8192)) >= 0) {
+            os.write(buffer, 0, read);
+        }
     }
 }

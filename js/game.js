@@ -7,7 +7,7 @@
 
     // ===================== CONSTANTS =====================
     const TILE = 128, HALF = 64;
-    const PLAYER_SPEED = 1.2, ENEMY_BASE_SPEED = 0.2;
+    const PLAYER_SPEED = 0.8, ENEMY_BASE_SPEED = 0.65;
     const DASH_SPEED = 4, DASH_DUR = 150, DASH_CD = 2000;
     const ATK_CD = 500, AUTO_ATK_MULT = 1.1, KNOCKBACK = 3, PICKUP_RANGE = 50;
     const BOSS_WAVE = 5, BOSS_HP_MULT = 5, BOSS_DMG_MULT = 1.5, BOSS_SPD_MULT = 0.7, BOSS_RAD = 38;
@@ -36,6 +36,14 @@
     ];
     const API_BASE = `http://${window.location.hostname || 'localhost'}:8080/api`;
     const WS_URL = `ws://${window.location.hostname || 'localhost'}:8081`;
+
+    // DEBUG
+    window.DEBUG_MODE = false;
+    window.toggleDebug = () => {
+        window.DEBUG_MODE = !window.DEBUG_MODE;
+        console.log(`[DEBUG] Mode: ${window.DEBUG_MODE ? 'ON' : 'OFF'}`);
+    };
+    console.log("Tip: Type window.toggleDebug() in console to view AI debug info.");
 
     // ===================== ASSETS =====================
     const IMG = {};
@@ -78,9 +86,9 @@
         }
 
         // Expanded state key: distance bucket, HP ratio bucket, attack ready,
-        // HP advantage vs target, near-wall flag, hazard flag
-        // Total states: 3 × 3 × 2 × 3 × 2 × 3 = 324 possible states
-        stateKey(fighter, target, structures, hazards) {
+        // HP advantage vs target, wall flags (4 bits), hazard flag
+        // Total states: 3 × 3 × 2 × 3 × 16 × 3 = 2592 possible states
+        stateKey(fighter, target, structures, hazards, arenaW, arenaH) {
             const d = dist(fighter, target);
             const dBucket = d < 80 ? 0 : d < 200 ? 1 : 2;  // close, mid, far
             const hpRatio = fighter.hp / fighter.maxHp;
@@ -92,12 +100,34 @@
             const advDiff = hpRatio - targetRatio;
             const advBucket = advDiff > 0.2 ? 0 : advDiff > -0.2 ? 1 : 2; // winning, even, losing
 
-            // Near wall/structure check (within 60px of any structure)
-            let nearWall = 0;
+            // Wall/Obstacle Sensing (4 directions)
+            // Bitmask: 1=Left, 2=Right, 4=Up, 8=Down
+            let walls = 0;
+            const range = 80;
+
+            // Arena Borders
+            if (fighter.x - range < 0) walls |= 1;
+            if (arenaW && fighter.x + range > arenaW) walls |= 2;
+            if (fighter.y - range < 0) walls |= 4;
+            if (arenaH && fighter.y + range > arenaH) walls |= 8;
+
+            // Structures
             if (structures) {
-                for (const s of structures) {
-                    if (s.collides(fighter.x, fighter.y, fighter.radius + 50)) {
-                        nearWall = 1; break;
+                const checks = [
+                    {x: -range, y: 0, bit: 1}, // Left
+                    {x: range, y: 0, bit: 2},  // Right
+                    {x: 0, y: -range, bit: 4}, // Up
+                    {x: 0, y: range, bit: 8}   // Down
+                ];
+                for (const c of checks) {
+                    if (walls & c.bit) continue;
+                    const px = fighter.x + c.x;
+                    const py = fighter.y + c.y;
+                    for (const s of structures) {
+                        if (s.collides(px, py, fighter.radius)) {
+                            walls |= c.bit;
+                            break;
+                        }
                     }
                 }
             }
@@ -114,7 +144,7 @@
                 }
             }
 
-            return `${dBucket}_${hpBucket}_${atk}_${advBucket}_${nearWall}_${hazardState}`;
+            return `${dBucket}_${hpBucket}_${atk}_${advBucket}_${walls}_${hazardState}`;
         }
 
         // Backwards-compatible key for game AI (no structures/hazards context)
@@ -152,7 +182,7 @@
         }
         decayEpsilon() { this.epsilon = Math.max(0.10, this.epsilon * 0.995); }
         statesCount() { return Object.keys(this.q).length; }
-        maxStates() { return 324; } // 3×3×2×3×2×3
+        maxStates() { return 2592; } // 3×3×2×3×16×3
 
         // Persistence - local
         save() {
@@ -329,6 +359,23 @@
                 for (let px = 4; px < this.w - 4; px += 12)
                     for (let py = 4; py < this.h - 4; py += 12)
                         ctx.fillRect(sx + px, sy + py, 6, 6);
+            }
+            
+            // --- DEBUG MAP COLLISION ---
+            if (window.DEBUG_MODE) {
+                ctx.strokeStyle = '#f0f'; ctx.lineWidth = 2; // Magenta box for physics bounds
+                ctx.strokeRect(sx, sy, this.w, this.h);
+                
+                // Cross pattern if it's a solid block
+                ctx.beginPath();
+                ctx.moveTo(sx, sy); ctx.lineTo(sx + this.w, sy + this.h);
+                ctx.moveTo(sx + this.w, sy); ctx.lineTo(sx, sy + this.h);
+                ctx.strokeStyle = 'rgba(255, 0, 255, 0.3)';
+                ctx.stroke();
+
+                // Coords text
+                ctx.fillStyle = '#fff'; ctx.font = '10px monospace';
+                ctx.fillText(`[${this.x},${this.y}]`, sx, sy - 5);
             }
         }
         collides(x, y, r) {
@@ -975,14 +1022,49 @@
             }
             // weapon
             const wImg = IMG[this.weapon];
+            // Calc swing for debug use outside
+            const swing = this.attacking ? Math.sin(this.attackTimer / 50) * 0.8 : 0;
+            
             if (wImg) {
                 ctx.save(); ctx.translate(sx, sy); ctx.rotate(this.angle);
                 const wOff = this.radius + 10;
-                const swing = this.attacking ? Math.sin(this.attackTimer / 50) * 0.8 : 0;
                 ctx.rotate(swing);
                 ctx.drawImage(wImg, wOff - 12, -12, 24, 24);
+
+                // --- DEBUG WEAPON HITBOX ---
+                if (window.DEBUG_MODE) {
+                    // Approximate weapon physical box
+                    ctx.strokeStyle = '#f00'; ctx.lineWidth = 1; 
+                    ctx.strokeRect(wOff - 12, -12, 24, 24);
+                }
                 ctx.restore();
             }
+
+            // --- DEBUG WEAPON ARC & DAMAGE ---
+            if (window.DEBUG_MODE) {
+                ctx.save(); ctx.translate(sx, sy); ctx.rotate(this.angle);
+                
+                // Attack Cone Area
+                ctx.beginPath();
+                ctx.moveTo(0,0);
+                // 60 degree cone
+                ctx.arc(0, 0, this.atkRange * 1.1, -Math.PI/6 + swing, Math.PI/6 + swing);
+                ctx.closePath();
+                ctx.fillStyle = this.attacking ? 'rgba(255, 0, 0, 0.2)' : 'rgba(255, 255, 0, 0.1)';
+                ctx.fill();
+                ctx.strokeStyle = this.attacking ? '#f00' : '#ff0';
+                ctx.stroke();
+
+                // Weapon Info Text
+                ctx.rotate(-this.angle); // Un-rotate for text
+                if (this.isPlayer) {
+                    ctx.fillStyle = '#fff'; ctx.font = '10px monospace';
+                    ctx.fillText(`DMG: ${Math.floor(this.dmg)}`, 0, this.radius + 15);
+                    ctx.fillText(`RNG: ${this.atkRange}`, 0, this.radius + 25);
+                }
+                ctx.restore();
+            }
+
             // hp bar
             if (!this.isPlayer || this.isBoss) {
                 const bw = this.radius * 2, bh = 5;
@@ -996,6 +1078,81 @@
                 ctx.font = '16px serif'; ctx.textAlign = 'center';
                 ctx.fillText('👑', sx, sy - this.radius - 16);
             }
+            
+            // --- DEBUG OVERLAY ---
+            if (window.DEBUG_MODE) {
+                ctx.save();
+                
+                // 1. Collision Indicator (Thick Cyan Box if collided)
+                if (this._collided) {
+                    ctx.strokeStyle = '#0ff'; ctx.lineWidth = 3;
+                    ctx.beginPath(); ctx.arc(sx, sy, this.radius + 4, 0, Math.PI*2); ctx.stroke();
+                }
+
+                // 2. Exact Hitbox (Magenta)
+                ctx.strokeStyle = '#f0f'; ctx.lineWidth = 2;
+                ctx.beginPath(); ctx.arc(sx, sy, this.radius, 0, Math.PI*2); ctx.stroke();
+                
+                // 3. Attack Range (Yellow Dashed)
+                ctx.strokeStyle = '#ff0'; ctx.lineWidth = 1; ctx.setLineDash([4, 4]);
+                ctx.beginPath(); ctx.arc(sx, sy, this.atkRange || 0, 0, Math.PI*2); ctx.stroke();
+                ctx.setLineDash([]); // Reset
+
+                // 4. Movement Arrow (Bright Green + Head)
+                const vMag = Math.hypot(this.vx, this.vy);
+                if (vMag > 0.01) {
+                    const arrowLen = 40;
+                    const ex = sx + this.vx * arrowLen;
+                    const ey = sy + this.vy * arrowLen;
+                    const ang = Math.atan2(this.vy, this.vx);
+                    
+                    ctx.strokeStyle = '#0f0'; ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.moveTo(sx, sy);
+                    ctx.lineTo(ex, ey);
+                    // Arrowhead
+                    ctx.lineTo(ex - 8 * Math.cos(ang - Math.PI/6), ey - 8 * Math.sin(ang - Math.PI/6));
+                    ctx.moveTo(ex, ey);
+                    ctx.lineTo(ex - 8 * Math.cos(ang + Math.PI/6), ey - 8 * Math.sin(ang + Math.PI/6));
+                    ctx.stroke();
+                }
+
+                // 5. Data Text Layer
+                // Outline
+                ctx.strokeStyle = '#000'; ctx.lineWidth = 3; ctx.lineJoin = 'round';
+                ctx.fillStyle = '#fff'; ctx.font = 'bold 11px monospace'; ctx.textAlign = 'center';
+                
+                const lines = [
+                    `HP: ${Math.ceil(this.hp)}/${this.maxHp}`,
+                    `Pos: ${Math.round(this.x)},${Math.round(this.y)}`
+                ];
+                
+                if (this.isPlayer) {
+                    if (this._collided) lines.push('COLLIDING');
+                } else { // AI specific
+                     // Action Text Color
+                     let actColor = '#fff';
+                     if (this._currentAction === 'attack') actColor = '#f44';
+                     else if (this._currentAction === 'chase') actColor = '#4f4';
+                     else if (this._currentAction === 'retreat') actColor = '#ff4';
+                     
+                     lines.push(`ACT: ${this._currentAction || 'IDLE'}`);
+                     lines.push(`Tmr: ${this._actionTimer || 0}`);
+                     if (this.stuckFrames > 0) lines.push(`STUCK: ${this.stuckFrames}`);
+                }
+
+                let ty = sy - this.radius - 10 - (lines.length * 12);
+                lines.forEach((l, i) => {
+                     // Draw stroke then fill for visibility
+                     ctx.strokeText(l, sx, ty + i*14);
+                     if (l.startsWith('ACT:')) ctx.fillStyle = '#ff8'; // Highlight action
+                     else ctx.fillStyle = '#fff';
+                     ctx.fillText(l, sx, ty + i*14);
+                });
+
+                ctx.restore();
+            }
+
             ctx.restore();
         }
     }
@@ -1087,6 +1244,13 @@
             this.enemies = [];
             this.running = false; this.lastTime = 0;
 
+            // settings
+            this.settings = {
+                autoAttack: localStorage.getItem('fightio_autoAttack') !== 'false', // default true
+                mute: localStorage.getItem('fightio_mute') === 'true', // default false
+                volume: parseInt(localStorage.getItem('fightio_volume') || '50')
+            };
+
             // players — up to 4
             const offsets = [[-60,0],[-20,0],[20,0],[60,0]];
             this.players = [];
@@ -1115,6 +1279,10 @@
             this.netSyncTimer = 0;
             this.remoteState = null;
 
+            // pause state
+            this.paused = false;
+            this.waveTimeout = null;
+
             if (this.net) {
                 this.net.onMessage = (msg) => this.onNetMessage(msg);
             }
@@ -1127,6 +1295,13 @@
             window.addEventListener('mousedown', this._onMouseD);
             window.addEventListener('mouseup', this._onMouseU);
             window.addEventListener('resize', this._onResize);
+            
+            // Pause Toggle Listener
+            this._onPauseToggle = (e) => {
+                if (e.key === 'Escape') this.togglePause();
+            };
+            window.addEventListener('keydown', this._onPauseToggle);
+
             this.running = true;
             this.lastTime = performance.now();
             this.nextWave();
@@ -1141,12 +1316,30 @@
             window.removeEventListener('mousedown', this._onMouseD);
             window.removeEventListener('mouseup', this._onMouseU);
             window.removeEventListener('resize', this._onResize);
+            if (this._onPauseToggle) window.removeEventListener('keydown', this._onPauseToggle);
         }
 
         loop() {
             if (!this.running) return;
+            if (this.paused) {
+                // Keep asking for frames to resume smoothly, but don't update
+                requestAnimationFrame(() => this.loop());
+                return;
+            }
             const now = performance.now();
             const dt = Math.min(now - this.lastTime, 50);
+            
+            // FPS Calculation
+            if (window.DEBUG_MODE) {
+                if (!this._lastFpsTime) { this._lastFpsTime = now; this._frameCount = 0; }
+                this._frameCount++;
+                if (now - this._lastFpsTime >= 1000) {
+                    this._fps = this._frameCount;
+                    this._frameCount = 0;
+                    this._lastFpsTime = now;
+                }
+            }
+
             this.lastTime = now;
             this.update(dt);
             this.render();
@@ -1178,9 +1371,10 @@
             const ann = document.getElementById('wave-announce');
             const annTxt = document.getElementById('wave-announce-text');
             if (ann && annTxt) {
+                if (this.waveTimeout) clearTimeout(this.waveTimeout);
                 annTxt.textContent = isBossWave ? `👑 JEFE — Oleada ${this.wave}!` : `Oleada ${this.wave}!`;
                 ann.classList.remove('hidden');
-                setTimeout(() => ann.classList.add('hidden'), 2000);
+                this.waveTimeout = setTimeout(() => ann.classList.add('hidden'), 2000);
             }
             document.getElementById('wave-num').textContent = this.wave;
             // spawn powerup
@@ -1191,53 +1385,207 @@
                 ));
             }
             // spawn reward orbs for AI learning
-            const orbCount = 3 + Math.min(this.wave, 7); // 3-10 orbs
-            this.rewardOrbs.push(...spawnRewardOrbs(this.arenaW, this.arenaH, orbCount, this.structures));
+            // const orbCount = 3 + Math.min(this.wave, 7); // 3-10 orbs
+            // this.rewardOrbs.push(...spawnRewardOrbs(this.arenaW, this.arenaH, orbCount, this.structures));
+        }
+
+        // ---- PAUSE & MENU ----
+        togglePause() {
+            if (this.paused) this.resume();
+            else this.pause();
+        }
+        pause() {
+            this.paused = true;
+            const pm = document.getElementById('pause-menu');
+            if(pm) pm.classList.add('active');
+        }
+        resume() {
+            this.paused = false;
+            this.lastTime = performance.now(); // Prevent large dt
+            const pm = document.getElementById('pause-menu');
+            const sm = document.getElementById('settings-screen');
+            if(pm) pm.classList.remove('active');
+            if(sm) sm.classList.remove('active');
+        }
+        openSettings() {
+            document.getElementById('pause-menu').classList.remove('active');
+            document.getElementById('settings-screen').classList.add('active');
+            
+            // Sync UI with current settings
+            document.getElementById('setting-auto-attack').checked = this.settings.autoAttack;
+            document.getElementById('setting-mute').checked = this.settings.mute;
+            document.getElementById('setting-volume').value = this.settings.volume;
+            document.getElementById('volume-value').textContent = this.settings.volume + '%';
+        }
+        closeSettings() {
+            document.getElementById('settings-screen').classList.remove('active');
+            document.getElementById('pause-menu').classList.add('active');
+        }
+        // Save settings when changed
+        updateSetting(key, value) {
+            this.settings[key] = value;
+            localStorage.setItem('fightio_' + key, value);
+            // If we had an audio system, we would update gain nodes here
+        }
+        quitGame() {
+            this.resume(); 
+            this.stop();
+            showScreen('menu-screen');
+            if (this.net) { this.net.close(); }
+            // clean up ui specifically
+            document.getElementById('pause-menu').classList.remove('active');
+            document.getElementById('net-status').classList.add('hidden');
+            document.getElementById('online-players-list').classList.add('hidden');
+            // re-enable button
+            document.getElementById('submit-score-btn').disabled = false;
+            currentGame = null;
         }
 
         // ---- ENEMY AI ----
         updateEnemyAI(e, dt) {
             const target = this.closestPlayer(e);
             if (!target || !target.alive) return;
-            const s = sharedQL.stateKey(e, target, this.structures, null);
-            // Only pick a new action every ~15 frames (commitment)
+            
+            // --- Stuck Detection & Unstuck Logic (Re-implemented Fix) ---
+            if (e.prevX === undefined) { e.prevX = e.x; e.prevY = e.y; e.stuckFrames = 0; }
+            const moveDist = Math.hypot(e.x - e.prevX, e.y - e.prevY);
+            
+            // Detect if intent is movement but result is stationary
+            if ((e._currentAction === 'chase' || e._currentAction === 'retreat') && moveDist < 0.2) {
+                e.stuckFrames++;
+            } else {
+                e.stuckFrames = Math.max(0, e.stuckFrames - 2);
+            }
+            e.prevX = e.x; e.prevY = e.y;
+
+            // If stuck for 0.5s, force a random escape vector
+            if (e.stuckFrames > 30) {
+                 if (!e._unstuckDir) {
+                     const ang = Math.random() * Math.PI * 2;
+                     e._unstuckDir = { x: Math.cos(ang), y: Math.sin(ang) };
+                 }
+                 e.vx = e._unstuckDir.x;
+                 e.vy = e._unstuckDir.y;
+                 e.angle = Math.atan2(e.vy, e.vx);
+                 return; // Override physics engine
+            } else {
+                 e._unstuckDir = null;
+            }
+
             e._actionTimer = (e._actionTimer || 0) - 1;
+
+            const s = sharedQL.stateKey(e, target, this.structures, null, this.arenaW, this.arenaH);
+            
+            // --- Logic Selection (Action Intent) ---
             if (e._actionTimer <= 0 || !e._currentAction) {
-                const action = sharedQL.choose(s);
+                let action;
+                const qValues = sharedQL.q[s] || {}; // Keep Q-table read even if unused
+                
+                // FORCE HEURISTIC MOVEMENT ALWAYS (Temporarily Disable Learned Movement for reliability)
+                const d = dist(e, target);
+                const hpRatio = e.hp / e.maxHp;
+                
+                if (hpRatio < 0.25) {
+                        action = 'retreat';
+                } else if (d > e.atkRange * 0.8) {
+                        action = 'chase';
+                } else if (d < e.atkRange * 0.4) {
+                        action = 'retreat';
+                } else {
+                        // In combat range: Circle or Attack
+                        action = Math.random() < 0.6 ? 'attack' : (Math.random() < 0.5 ? 'strafe_left' : 'strafe_right');
+                }
+                
                 e._currentAction = action;
-                e._actionTimer = 10 + randInt(0, 10); // 10-20 frames commitment
+                e._actionTimer = 8 + randInt(0, 5); 
                 e.prevState = s; e.prevAction = action;
             }
-            const action = e._currentAction;
+            
+            let action = e._currentAction;
+            
+            // --- Navigation / Steering (PHYSICS ENGINE) ---
             const a = angle(e, target);
-            const spd = e.actualSpeed;
-            // Low HP enemies retreat more often
-            const hpRatio = e.hp / e.maxHp;
-            const shouldRetreat = hpRatio < 0.3 && Math.random() < 0.5;
-            if (shouldRetreat) {
-                e.vx = -Math.cos(a); e.vy = -Math.sin(a);
-            } else {
-                switch (action) {
-                    case 'chase': e.vx = Math.cos(a); e.vy = Math.sin(a); break;
-                    case 'retreat': e.vx = -Math.cos(a); e.vy = -Math.sin(a); break;
-                    case 'strafe_left': e.vx = Math.cos(a - Math.PI / 2); e.vy = Math.sin(a - Math.PI / 2); break;
-                    case 'strafe_right': e.vx = Math.cos(a + Math.PI / 2); e.vy = Math.sin(a + Math.PI / 2); break;
-                    case 'flank': { const fa = a + (Math.random() > 0.5 ? 1 : -1) * Math.PI / 3; e.vx = Math.cos(fa); e.vy = Math.sin(fa); break; }
-                    case 'attack': e.vx = Math.cos(a) * 0.3; e.vy = Math.sin(a) * 0.3; break;
+            let goalVx = 0, goalVy = 0;
+            
+            switch (action) {
+                case 'chase': goalVx = Math.cos(a); goalVy = Math.sin(a); break;
+                case 'retreat': goalVx = -Math.cos(a); goalVy = -Math.sin(a); break;
+                case 'strafe_left': goalVx = Math.cos(a - Math.PI / 2); goalVy = Math.sin(a - Math.PI / 2); break;
+                case 'strafe_right': goalVx = Math.cos(a + Math.PI / 2); goalVy = Math.sin(a + Math.PI / 2); break;
+                case 'attack': goalVx = Math.cos(a) * 0.1; goalVy = Math.sin(a) * 0.1; break; // Slow down to hit
+            }
+            
+            // Apply Wall Sliding (Tangential Movement)
+            let blockedX = false, blockedY = false;
+            // Tighter feeler to avoid "air" stuck
+            const feeler = e.radius + 2; 
+            
+            // Check Arena Bounds
+            if ((e.x < feeler && goalVx < 0) || (e.x > this.arenaW - feeler && goalVx > 0)) blockedX = true;
+            if ((e.y < feeler && goalVy < 0) || (e.y > this.arenaH - feeler && goalVy > 0)) blockedY = true;
+
+            // Check Structures
+            if (this.structures) {
+                for (const str of this.structures) {
+                    // Optimized collision check with simple AABB
+                    if (e.x + feeler > str.x && e.x - feeler < str.x + str.w &&
+                        e.y + feeler > str.y && e.y - feeler < str.y + str.h) {
+                        
+                        const dx = (e.x) - (str.x + str.w/2);
+                        const dy = (e.y) - (str.y + str.h/2);
+                        const w2 = str.w/2 + feeler;
+                        const h2 = str.h/2 + feeler;
+                        const ox = Math.abs(dx) / w2;
+                        const oy = Math.abs(dy) / h2;
+
+                        if (ox > oy) { 
+                            if ((dx < 0 && goalVx > 0) || (dx > 0 && goalVx < 0)) blockedX = true;
+                        } else { 
+                            if ((dy < 0 && goalVy > 0) || (dy > 0 && goalVy < 0)) blockedY = true;
+                        }
+                    }
                 }
             }
+
+            // Apply Blocks (Slide)
+            if (blockedX) goalVx = 0;
+            if (blockedY) goalVy = 0;
+
+            // Corner Escape: If both stopped, bounce randomly
+            if (blockedX && blockedY && (action === 'chase' || action === 'retreat')) {
+                 const escAngle = Math.random() * Math.PI * 2;
+                 goalVx = Math.cos(escAngle); 
+                 goalVy = Math.sin(escAngle);
+            }
+
+            // Normalization & Boost
+            const m = Math.hypot(goalVx, goalVy);
+            if (m > 0.01) {
+                // Diagonal slide boost
+                if (action === 'chase' && (blockedX || blockedY)) {
+                     if (blockedX) goalVy = Math.sin(a) > 0 ? 1 : -1;
+                     if (blockedY) goalVx = Math.cos(a) > 0 ? 1 : -1;
+                }
+                const m2 = Math.hypot(goalVx, goalVy);
+                e.vx = (goalVx / m2);
+                e.vy = (goalVy / m2);
+            } else {
+                e.vx = 0; e.vy = 0;
+            }
             e.angle = a;
-            const d = dist(e, target);
-            // Hesitation: enemies only attack 40% of the time they're in range
-            if (d < e.atkRange * AUTO_ATK_MULT && Math.random() < 0.4) {
+            
+            const distToTarget = dist(e, target);
+            // Increased attack frequency: 60%
+            if (distToTarget < e.atkRange * AUTO_ATK_MULT && Math.random() < 0.6) {
                 if (e.attack()) {
                     const dmg = e.dmg;
-                    if (d < e.atkRange) {
+                    // Slightly increase effective hit range to match visual overlap
+                    if (distToTarget < e.atkRange * 1.1) {
                         target.takeDamage(dmg, e);
                         this.spawnHitFx(target);
                         const reward = 1 + dmg / 10;
                         if (e.prevState) {
-                            const s2 = sharedQL.stateKey(e, target, this.structures, null);
+                            const s2 = sharedQL.stateKey(e, target, this.structures, null, this.arenaW, this.arenaH);
                             sharedQL.update(e.prevState, e.prevAction, reward, s2);
                         }
                     }
@@ -1278,7 +1626,7 @@
             );
             // auto-attack nearest enemy
             const nearest = this.nearestEnemy(this.p1);
-            if (nearest && dist(this.p1, nearest) < this.p1.atkRange * AUTO_ATK_MULT) {
+            if (this.settings.autoAttack && nearest && dist(this.p1, nearest) < this.p1.atkRange * AUTO_ATK_MULT) {
                 if (this.p1.attack()) {
                     if (dist(this.p1, nearest) < this.p1.atkRange) {
                         nearest.takeDamage(this.p1.dmg, this.p1);
@@ -1318,7 +1666,7 @@
             const ne = this.nearestEnemy(this.p2);
             if (ne) this.p2.angle = angle(this.p2, ne);
             // auto-attack
-            if (ne && dist(this.p2, ne) < this.p2.atkRange * AUTO_ATK_MULT) {
+            if (this.settings.autoAttack && ne && dist(this.p2, ne) < this.p2.atkRange * AUTO_ATK_MULT) {
                 if (this.p2.attack()) {
                     if (dist(this.p2, ne) < this.p2.atkRange) {
                         ne.takeDamage(this.p2.dmg, this.p2);
@@ -1603,23 +1951,11 @@
                 if (e.x !== preX || e.y !== preY) e._collided = true;
                 // small penalty only on FIRST collision frame (not every tick)
                 if (e._collided && !e._wasColliding && e.prevState) {
-                    const s2 = sharedQL.stateKey(e, this.closestPlayer(e), this.structures, null);
-                    sharedQL.update(e.prevState, e.prevAction, -0.1, s2);
+                    const s2 = sharedQL.stateKey(e, this.closestPlayer(e), this.structures, null, this.arenaW, this.arenaH);
+                    sharedQL.update(e.prevState, e.prevAction, -1.0, s2);
                 }
                 e._wasColliding = e._collided;
-                // reward orb collection
-                for (let oi = this.rewardOrbs.length - 1; oi >= 0; oi--) {
-                    const orb = this.rewardOrbs[oi];
-                    if (!orb.collected && dist(e, orb) < e.radius + orb.radius) {
-                        orb.collected = true;
-                        this.rewardOrbs.splice(oi, 1);
-                        // Q-learning reward: 0.5 (less than kill=1+)
-                        if (e.prevState) {
-                            const s2 = sharedQL.stateKey(e, this.closestPlayer(e), this.structures, null);
-                            sharedQL.update(e.prevState, e.prevAction, 0.5, s2);
-                        }
-                    }
-                }
+                
                 if (!e.alive && this.enemiesAlive > 0) {
                     this.onEnemyKill(e, this.closestPlayer(e));
                 }
@@ -1761,6 +2097,31 @@
             this.drops.forEach(d => d.draw(ctx, c));
             this.powerups.forEach(p => p.draw(ctx, c));
             this.rewardOrbs.forEach(o => o.draw(ctx, c));
+
+            // --- GLOBAL DEBUG HUD (Coordinates & FPS) ---
+            if (window.DEBUG_MODE) {
+                ctx.save();
+                // Semi-transparent background box at Top-Left
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+                ctx.fillRect(10, 10, 220, 60);
+                
+                // Black Text for visibility
+                ctx.fillStyle = '#000'; 
+                ctx.font = 'bold 16px monospace'; 
+                ctx.textAlign = 'left';
+                
+                let px = 0, py = 0;
+                if (this.p1) { px = Math.round(this.p1.x); py = Math.round(this.p1.y); }
+                
+                const fpsVal = this._fps || 60;
+                const txt1 = `FPS: ${fpsVal}  (${Math.round(1000/fpsVal)}ms)`;
+                const txt2 = `POS: X:${px} Y:${py}`;
+                
+                ctx.fillText(txt1, 20, 35);
+                ctx.fillText(txt2, 20, 55);
+                ctx.restore();
+            }
+
             // enemies
             this.enemies.forEach(e => e.draw(ctx, c));
             // players
@@ -1969,7 +2330,7 @@
                     if (d < bd) { bd = d; target = enemies[i]; }
                 }
 
-                const s = sharedQL.stateKey(f, target, this.structures, this.hazards);
+                const s = sharedQL.stateKey(f, target, this.structures, this.hazards, this.arenaW, this.arenaH);
                 // Only pick a new action every ~15 frames (commitment)
                 f._actionTimer = (f._actionTimer || 0) - 1;
                 if (f._actionTimer <= 0 || !f._currentAction) {
@@ -1997,17 +2358,22 @@
                 }
 
                 f.update(16, this.structures);
+
                 // arena edge — just clamp, flag collision
                 const preFFX = f.x, preFFY = f.y;
                 f.x = clamp(f.x, f.radius, this.arenaW - f.radius);
                 f.y = clamp(f.y, f.radius, this.arenaH - f.radius);
                 if (f.x !== preFFX || f.y !== preFFY) f._collided = true;
-                // small penalty only on FIRST collision frame
+                
+                // Removed explicit wall penalty to avoid massive negative scores from jitter
+                // The AI naturally learns to avoid walls by not reaching the target (opportunity cost)
+                /* 
                 if (f._collided && !f._wasColliding && f.prevState) {
-                    const s2 = sharedQL.stateKey(f, target, this.structures, this.hazards);
+                    const s2 = sharedQL.stateKey(f, target, this.structures, this.hazards, this.arenaW, this.arenaH);
                     sharedQL.update(f.prevState, f.prevAction, -0.1, s2);
-                    this.totalReward -= 0.1;
+                    // this.totalReward -= 0.1; 
                 }
+                */
                 f._wasColliding = f._collided;
 
                 // reward orb collection
@@ -2018,7 +2384,7 @@
                         this.rewardOrbs.splice(oi, 1);
                         // Q-learning reward: 0.5 (less than kill)
                         if (f.prevState) {
-                            const s2 = sharedQL.stateKey(f, target, this.structures, this.hazards);
+                            const s2 = sharedQL.stateKey(f, target, this.structures, this.hazards, this.arenaW, this.arenaH);
                             sharedQL.update(f.prevState, f.prevAction, 0.5, s2);
                             this.totalReward += 0.5;
                         }
@@ -2035,7 +2401,7 @@
                         target.takeDamage(f.dmg, f);
                         const reward = target.alive ? 1 : 5;
                         this.totalReward += reward;
-                        const s2 = sharedQL.stateKey(f, target, this.structures, this.hazards);
+                        const s2 = sharedQL.stateKey(f, target, this.structures, this.hazards, this.arenaW, this.arenaH);
                         sharedQL.update(s, action, reward, s2);
                         if (this.speed <= 2) {
                             this.particles.push(new Particle(target.x, target.y, '#ff0'));
@@ -2544,6 +2910,25 @@
             showScreen('menu-screen');
         });
         document.getElementById('submit-score-btn').addEventListener('click', submitScore);
+
+        // pause menu buttons
+        document.getElementById('resume-btn').addEventListener('click', () => { if(currentGame) currentGame.resume(); });
+        document.getElementById('settings-btn').addEventListener('click', () => { if(currentGame) currentGame.openSettings(); });
+        document.getElementById('quit-btn').addEventListener('click', () => { if(currentGame) currentGame.quitGame(); });
+        document.getElementById('settings-back-btn').addEventListener('click', () => { if(currentGame) currentGame.closeSettings(); });
+
+        // Settings Listeners
+        document.getElementById('setting-auto-attack').addEventListener('change', (e) => {
+            if(currentGame) currentGame.updateSetting('autoAttack', e.target.checked);
+        });
+        document.getElementById('setting-mute').addEventListener('change', (e) => {
+            if(currentGame) currentGame.updateSetting('mute', e.target.checked);
+        });
+        document.getElementById('setting-volume').addEventListener('input', (e) => {
+            const val = parseInt(e.target.value);
+            document.getElementById('volume-value').textContent = val + '%';
+            if(currentGame) currentGame.updateSetting('volume', val);
+        });
     }
 
     // kick off

@@ -1,6 +1,6 @@
 #!/bin/bash
 echo "Compilando servidor..."
-javac server/*.java
+javac --release 8 server/*.java
 
 if [ $? -ne 0 ]; then
     echo "Error de compilacion."

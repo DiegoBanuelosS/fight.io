@@ -7,6 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="css/style.css" />
+    <link rel="stylesheet" href="css/pause.css" />
 </head>
 <body>
 
@@ -186,6 +187,36 @@
 
         <!-- Online players list (top-right) -->
         <div id="online-players-list" class="hidden"></div>
+
+        <!-- Pause Menu -->
+        <div id="pause-menu">
+            <h2>PAUSA</h2>
+            <button id="resume-btn" class="btn">CONTINUAR</button>
+            <button id="settings-btn" class="btn secondary">CONFIGURACIÓN</button>
+            <button id="quit-btn" class="btn secondary">SALIR AL MENÚ</button>
+        </div>
+    </div>
+
+    <!-- ======== SETTINGS SCREEN ======== -->
+    <div id="settings-screen" class="screen">
+        <h1 class="title">CONFIGURACIÓN</h1>
+        <div class="settings-content">
+            <div class="settings-group">
+                <label>
+                    <input type="checkbox" id="setting-auto-attack" checked> GOLPE AUTOMÁTICO
+                </label>
+            </div>
+            <div class="settings-group">
+                <label>
+                    <input type="checkbox" id="setting-mute"> SILENCIAR SONIDO
+                </label>
+            </div>
+            <div class="settings-group">
+                <label for="setting-volume">VOLUMEN <span id="volume-value">50%</span></label>
+                <input type="range" id="setting-volume" min="0" max="100" value="50">
+            </div>
+        </div>
+        <button id="settings-back-btn" class="btn">VOLVER</button>
     </div>
 
     <!-- ======== TRAINING SCREEN ======== -->

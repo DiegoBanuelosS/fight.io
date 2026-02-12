@@ -1,6 +1,6 @@
 @echo off
 echo Compilando servidor...
-javac server/*.java
+javac --release 8 server/*.java
 
 if %errorlevel% neq 0 (
     echo Error de compilacion.
