@@ -2853,7 +2853,6 @@
             }
         });
         document.getElementById('online-btn').addEventListener('click', startOnline);
-        document.getElementById('training-btn').addEventListener('click', startTraining);
 
         // online buttons
         document.getElementById('create-room-btn').addEventListener('click', createRoom);
