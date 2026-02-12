@@ -53,7 +53,7 @@
         loadImg(c + '_hand', `PNG/Double (128px)/Characters/${c}_hand.png`);
     });
     Object.keys(WEAPON_DATA).forEach(w => loadImg(w, `PNG/Double (128px)/Items/${w}.png`));
-    loadImg('tilesheet', 'Tilesheet/Tilesheet@2.png');
+    loadImg('tilesheet', 'Tilesheet/tilesheet@2.png');
     ['shield_blue', 'shield_red'].forEach(s => loadImg(s, `PNG/Double (128px)/Items/${s}.png`));
 
     function allLoaded() { return assetsLoaded >= assetsTotal; }
