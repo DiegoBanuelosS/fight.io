@@ -19,15 +19,16 @@
     const PLAYER_COLORS_LABELS = { green: 'Verde', purple: 'Morado', red: 'Rojo', yellow: 'Amarillo' };
     const COLORS = ['green', 'purple', 'red', 'yellow'];
     const WEAPON_DATA = {
-        weapon_sword:       { dmg: 15, range: 50, speed: 1.0, label: 'Espada' },
-        weapon_axe:         { dmg: 20, range: 45, speed: 0.8, label: 'Hacha' },
-        weapon_hammer:      { dmg: 28, range: 55, speed: 0.6, label: 'Martillo' },
-        weapon_longsword:   { dmg: 18, range: 65, speed: 0.85, label: 'Mandoble' },
-        weapon_spear:       { dmg: 14, range: 75, speed: 0.9, label: 'Lanza' },
-        weapon_dagger:      { dmg: 10, range: 35, speed: 1.4, label: 'Daga' },
-        weapon_axe_double:  { dmg: 24, range: 50, speed: 0.7, label: 'Hacha Doble' },
-        weapon_staff:       { dmg: 12, range: 60, speed: 1.1, label: 'Bastón' }
+        weapon_sword:       { dmg: 15, range: 50, speed: 1.0, label: 'Espada', abilityCd: 2000, abilityDur: 1500, abilityColor: '#fff0b0', abilityDesc: 'Buff de daño breve' },
+        weapon_axe:         { dmg: 20, range: 45, speed: 0.8, label: 'Hacha', abilityCd: 3000, abilityDur: 700, abilityColor: '#ffbb88', abilityDesc: 'Cleave frontal' },
+        weapon_hammer:      { dmg: 28, range: 55, speed: 0.6, label: 'Martillo', abilityCd: 4500, abilityDur: 900, abilityColor: '#ffd1a8', abilityDesc: 'Stun AoE' },
+        weapon_longsword:   { dmg: 18, range: 65, speed: 0.85, label: 'Mandoble', abilityCd: 2500, abilityDur: 700, abilityColor: '#e0f0ff', abilityDesc: 'Giro empujador' },
+        weapon_spear:       { dmg: 14, range: 75, speed: 0.9, label: 'Lanza', abilityCd: 2800, abilityDur: 600, abilityColor: '#fff0dd', abilityDesc: 'Carga y perfora' },
+        weapon_dagger:      { dmg: 10, range: 35, speed: 1.4, label: 'Daga', abilityCd: 2000, abilityDur: 500, abilityColor: '#ff9999', abilityDesc: 'Teletransporte crítico' },
+        weapon_axe_double:  { dmg: 24, range: 50, speed: 0.7, label: 'Hacha Doble', abilityCd: 3500, abilityDur: 700, abilityColor: '#ffd6ff', abilityDesc: 'Torbellino cercano' },
+        weapon_staff:       { dmg: 12, range: 60, speed: 1.1, label: 'Bastón', abilityCd: 5000, abilityDur: 1000, abilityColor: '#a8efff', abilityDesc: 'Curación área' }
     };
+    const DEFAULT_ABILITY_CD = 3000; // ms
     const POWERUP_TYPES = [
         { key: 'heal',   color: '#4f4',  icon: '❤️', dur: 0,    label: '+50 HP' },
         { key: 'speed',  color: '#4ff',  icon: '⚡', dur: 8000, label: 'Velocidad' },
@@ -36,6 +37,11 @@
     ];
     const API_BASE = `http://${window.location.hostname || 'localhost'}:8080/api`;
     const WS_URL = `ws://${window.location.hostname || 'localhost'}:8081`;
+    // FX constants are provided by js/lib/fx_constants.js and particle classes
+    // (window.MAX_PARTICLES, window.MAX_TEXTS, window.PARTICLES_PER_HIT)
+    const MAX_PARTICLES = window.MAX_PARTICLES || 200;
+    const MAX_TEXTS = window.MAX_TEXTS || 40;
+    const PARTICLES_PER_HIT = window.PARTICLES_PER_HIT || 12;
 
     // DEBUG
     window.DEBUG_MODE = false;
@@ -297,41 +303,8 @@
     // Load from server on startup (merges with localStorage)
     sharedQL.loadFromServer();
 
-    // ===================== PARTICLES =====================
-    class Particle {
-        constructor(x, y, color) {
-            this.x = x; this.y = y; this.color = color;
-            this.vx = rand(-2, 2); this.vy = rand(-2, 2);
-            this.life = 1; this.decay = rand(0.02, 0.05);
-            this.r = rand(2, 5);
-        }
-        update() { this.x += this.vx; this.y += this.vy; this.life -= this.decay; }
-        draw(ctx, cam) {
-            ctx.globalAlpha = this.life;
-            ctx.fillStyle = this.color;
-            ctx.beginPath();
-            ctx.arc(this.x - cam.x, this.y - cam.y, this.r, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.globalAlpha = 1;
-        }
-    }
-
-    // ===================== FLOATING TEXT =====================
-    class FloatingText {
-        constructor(x, y, txt, color) {
-            this.x = x; this.y = y; this.txt = txt; this.color = color;
-            this.life = 1; this.vy = -1;
-        }
-        update() { this.y += this.vy; this.life -= 0.02; }
-        draw(ctx, cam) {
-            ctx.globalAlpha = this.life;
-            ctx.fillStyle = this.color;
-            ctx.font = 'bold 14px "Press Start 2P"';
-            ctx.textAlign = 'center';
-            ctx.fillText(this.txt, this.x - cam.x, this.y - cam.y);
-            ctx.globalAlpha = 1;
-        }
-    }
+    // Particle and FloatingText classes are provided by js/lib/particle.js
+    // as global `Particle` and `FloatingText` for backward compatibility.
 
     // ===================== STRUCTURE =====================
     class Structure {
@@ -843,6 +816,16 @@
         draw(ctx, cam) {
             const sx = this.x - cam.x, sy = this.y - cam.y + Math.sin(this.bob) * 3;
             ctx.save();
+            function hexToRgba(hex, a) {
+                try {
+                    if (hex[0] === '#') hex = hex.slice(1);
+                    const bigint = parseInt(hex, 16);
+                    const r = (bigint >> 16) & 255;
+                    const g = (bigint >> 8) & 255;
+                    const b = bigint & 255;
+                    return `rgba(${r},${g},${b},${a})`;
+                } catch (e) { return `rgba(255,255,255,${a})`; }
+            }
             ctx.shadowColor = '#ff0'; ctx.shadowBlur = 10;
             const img = IMG[this.weapon];
             if (img) ctx.drawImage(img, sx - 16, sy - 16, 32, 32);
@@ -904,6 +887,12 @@
     // ===================== FIGHTER =====================
     class Fighter {
         constructor(x, y, color, weapon, isPlayer, isBoss) {
+            // sistema combate PRO
+            this.staggerTimer = 0;
+            this.staggerForceX = 0;
+            this.combo = 0;
+            this.comboTimer = 0;
+            this.lastHitTime = 0;
             this.x = x; this.y = y;
             this.spawnX = x; this.spawnY = y; // remember start position
             this.color = color; this.weapon = weapon;
@@ -916,6 +905,7 @@
             this.attacking = false; this.attackTimer = 0; this.attackReady = true;
             this.dashing = false; this.dashTimer = 0; this.dashCdTimer = 0;
             this.knockX = 0; this.knockY = 0;
+            this.stunTimer = 0;
             this.alive = true;
             this.kills = 0; this.score = 0;
             this.prevState = null; this.prevAction = null;
@@ -927,6 +917,9 @@
             this._currentAction = null;
             // power-up buffs
             this.buffs = {};
+            // ability cooldown tracking (ms)
+            this.abilityCdTimer = 0; // remaining ms
+            this.abilityCooldown = (WEAPON_DATA[this.weapon] && WEAPON_DATA[this.weapon].abilityCd) || DEFAULT_ABILITY_CD;
         }
         get weaponData() { return WEAPON_DATA[this.weapon] || WEAPON_DATA.weapon_sword; }
         get atkRange() { return this.weaponData.range + this.radius; }
@@ -940,6 +933,10 @@
         get actualSpeed() {
             let s = this.isPlayer ? PLAYER_SPEED : (this.isBoss ? ENEMY_BASE_SPEED * BOSS_SPD_MULT : ENEMY_BASE_SPEED);
             if (this.buffs.speed) s *= 1.6;
+            // allow slow effects from weapons
+            if (this._effects && this._effects.slow && Date.now() < this._effects.slow.until) {
+                s *= this._effects.slow.mult;
+            }
             return s;
         }
         addBuff(key, dur) {
@@ -950,6 +947,27 @@
             const now = Date.now();
             for (const k in this.buffs) if (this.buffs[k] < now) delete this.buffs[k];
         }
+        // custom short-lived effects registry (bleed, slow, etc.)
+        _applyEffects(dt) {
+            if (!this._effects) return;
+            const now = Date.now();
+            // bleed damage (hp per frame scaled similar to hazards)
+            if (this._effects.bleed && this._effects.bleed.until > now) {
+                const dps = this._effects.bleed.dps || 0.5; // per "tick" base
+                this.hp -= dps * (dt / 16);
+                if (this.hp <= 0) { this.hp = 0; this.alive = false; }
+            } else if (this._effects.bleed) {
+                delete this._effects.bleed;
+            }
+            // slow expires handled by actualSpeed getter using _effects.slow.until
+            if (this._effects.slow && this._effects.slow.until <= now) delete this._effects.slow;
+        }
+        // ability cooldown tick
+        _tickAbility(dt) {
+            if (this.abilityCdTimer > 0) {
+                this.abilityCdTimer = Math.max(0, this.abilityCdTimer - dt);
+            }
+        }
         takeDamage(dmg, from) {
             let d = dmg;
             // Reduce damage enemies deal to players
@@ -959,13 +977,32 @@
             if (from) {
                 const a = angle(from, this);
                 const kb = (this.isBoss) ? KNOCKBACK * 0.3 : KNOCKBACK;
-                this.knockX = Math.cos(a) * kb;
-                this.knockY = Math.sin(a) * kb;
+                
+            // STAGGER PRO (micro reacción al golpe)
+            if (Math.random() < 0.35) {   // probabilidad
+                this.staggerTimer = 8;   // duración corta
+
+                // empuje leve dependiendo dirección
+                const push = 0.5;
+                this.staggerForceX = from.x < this.x ? push : -push;
+            }
+
+
             }
             if (this.hp <= 0) { this.hp = 0; this.alive = false; }
         }
         update(dt, structures) {
             this.updateBuffs();
+            // apply custom weapon effects (bleed/slow)
+            this._applyEffects(dt);
+            // tick ability cooldown
+            this._tickAbility(dt);
+            // stun check
+            if (this.stunTimer > 0) {
+                this.stunTimer -= dt;
+                return; // NO se mueve mientras está stun
+            }
+
             if (this.attackTimer > 0) {
                 this.attackTimer -= dt;
                 if (this.attackTimer <= 0) { this.attacking = false; this.attackReady = true; }
@@ -975,9 +1012,7 @@
                 this.dashTimer -= dt;
                 if (this.dashTimer <= 0) this.dashing = false;
             }
-            // apply knockback
-            this.x += this.knockX; this.y += this.knockY;
-            this.knockX *= 0.85; this.knockY *= 0.85;
+            // knockback eliminado
             // apply velocity
             const spd = this.dashing ? DASH_SPEED : this.actualSpeed;
             this._collided = false; // reset each frame
@@ -1003,6 +1038,31 @@
             if (!this.alive) return;
             const sx = this.x - cam.x, sy = this.y - cam.y;
             ctx.save();
+            // ability aura if active (pulsing + rim + lighter blend)
+            try {
+                if (this._abilityActive && Date.now() < this._abilityActive.until) {
+                    const col = this._abilityActive.color || '#fff0b0';
+                    const t = performance.now() / 250;
+                    const pulse = 0.6 + 0.35 * Math.sin(t);
+                    // soft radial glow
+                    ctx.save();
+                    ctx.globalCompositeOperation = 'lighter';
+                    const g = ctx.createRadialGradient(sx, sy, this.radius * 0.2, sx, sy, this.radius + 48);
+                    g.addColorStop(0, hexToRgba(col, 0.45 * pulse));
+                    g.addColorStop(0.5, hexToRgba(col, 0.18 * pulse));
+                    g.addColorStop(1, 'rgba(0,0,0,0)');
+                    ctx.fillStyle = g;
+                    ctx.beginPath(); ctx.arc(sx, sy, this.radius + 48, 0, Math.PI * 2); ctx.fill();
+                    // bright rim
+                    ctx.lineWidth = 6; ctx.strokeStyle = hexToRgba(col, 0.9 * pulse);
+                    ctx.beginPath(); ctx.arc(sx, sy, this.radius + 18, 0, Math.PI * 2); ctx.stroke();
+                    // rotating arc
+                    const start = (t % (Math.PI * 2));
+                    ctx.lineWidth = 3; ctx.strokeStyle = hexToRgba('#ffffff', 0.08 * pulse);
+                    ctx.beginPath(); ctx.arc(sx, sy, this.radius + 26, start, start + Math.PI * 0.9); ctx.stroke();
+                    ctx.restore();
+                }
+            } catch (e) {}
             // shield buff glow
             if (this.buffs.shield) {
                 ctx.strokeStyle = 'rgba(68,68,255,0.5)'; ctx.lineWidth = 3;
@@ -1269,7 +1329,50 @@
 
             // input
             this.keys = {}; this.mouse = { x: 0, y: 0, down: false };
-            this._onKey = (e) => this.keys[e.key.toLowerCase()] = e.type === 'keydown';
+            // controls mapping (can be remapped by player)
+            this.controls = this._loadControls();
+            this._onKey = (e) => {
+                const k = (e.key || '').toLowerCase();
+                const down = e.type === 'keydown';
+                this.keys[k] = down;
+                if (!down) return; // only trigger actions on keydown
+                // Player 1 ability / pickup
+                if (this.p1 && this.p1.alive && this.controls && this.controls.p1) {
+                    if (k === (this.controls.p1.ability || 'q')) {
+                        if (this.p1.abilityCdTimer <= 0) {
+                            if (window.Weapons && window.Weapons.onAbility) window.Weapons.onAbility(this.p1.weapon, this.p1, this);
+                            const wc = WEAPON_DATA[this.p1.weapon] || {};
+                            const dur = wc.abilityDur || 800;
+                            const color = wc.abilityColor || '#fff0b0';
+                            const desc = wc.abilityDesc || '';
+                            this.p1._abilityActive = { until: Date.now() + dur, color, desc };
+                            this.p1.abilityCdTimer = this.p1.abilityCooldown || (wc.abilityCd || DEFAULT_ABILITY_CD);
+                            this.texts.push(new FloatingText(this.p1.x, this.p1.y - 34, 'HABILIDAD', color));
+                        } else {
+                            this.texts.push(new FloatingText(this.p1.x, this.p1.y - 34, 'EN CD', '#ff7777'));
+                        }
+                    }
+                    if (k === (this.controls.p1.pickup || 'e')) this.tryPickup(this.p1);
+                }
+                // Player 2 ability / pickup
+                if (this.p2 && this.p2.alive && this.controls && this.controls.p2) {
+                    if (k === (this.controls.p2.ability || '/')) {
+                        if (this.p2.abilityCdTimer <= 0) {
+                            if (window.Weapons && window.Weapons.onAbility) window.Weapons.onAbility(this.p2.weapon, this.p2, this);
+                            const wc2 = WEAPON_DATA[this.p2.weapon] || {};
+                            const dur2 = wc2.abilityDur || 800;
+                            const color2 = wc2.abilityColor || '#fff0b0';
+                            const desc2 = wc2.abilityDesc || '';
+                            this.p2._abilityActive = { until: Date.now() + dur2, color: color2, desc: desc2 };
+                            this.p2.abilityCdTimer = this.p2.abilityCooldown || (wc2.abilityCd || DEFAULT_ABILITY_CD);
+                            this.texts.push(new FloatingText(this.p2.x, this.p2.y - 34, 'HABILIDAD', color2));
+                        } else {
+                            this.texts.push(new FloatingText(this.p2.x, this.p2.y - 34, 'EN CD', '#ff7777'));
+                        }
+                    }
+                    if (k === (this.controls.p2.pickup || '/')) this.tryPickup(this.p2);
+                }
+            };
             this._onMouse = (e) => { this.mouse.x = e.clientX; this.mouse.y = e.clientY; };
             this._onMouseD = (e) => { if (e.button === 0) this.mouse.down = true; };
             this._onMouseU = (e) => { if (e.button === 0) this.mouse.down = false; };
@@ -1295,6 +1398,10 @@
             window.addEventListener('mousedown', this._onMouseD);
             window.addEventListener('mouseup', this._onMouseU);
             window.addEventListener('resize', this._onResize);
+            // create controls UI for remapping
+            try { this.renderControlsUI(); } catch (e) { console.warn('controls UI failed', e); }
+            try { this.createAbilityUI(); } catch (e) { console.warn('ability UI failed', e); }
+            try { this.createAbilityInfoUI(); } catch (e) { console.warn('ability info UI failed', e); }
             
             // Pause Toggle Listener
             this._onPauseToggle = (e) => {
@@ -1317,6 +1424,160 @@
             window.removeEventListener('mouseup', this._onMouseU);
             window.removeEventListener('resize', this._onResize);
             if (this._onPauseToggle) window.removeEventListener('keydown', this._onPauseToggle);
+        }
+
+        // Load/save controls mapping to localStorage
+        _loadControls() {
+            try {
+                const saved = localStorage.getItem('fightio_controls');
+                if (saved) return JSON.parse(saved);
+            } catch (e) {}
+            // defaults
+            return {
+                p1: { up: 'w', down: 's', left: 'a', right: 'd', dash: ' ', ability: 'q', pickup: 'e' },
+                p2: { up: 'arrowup', down: 'arrowdown', left: 'arrowleft', right: 'arrowright', dash: 'enter', ability: '/', pickup: '/' }
+            };
+        }
+        _saveControls() {
+            try { localStorage.setItem('fightio_controls', JSON.stringify(this.controls)); } catch (e) {}
+        }
+
+        // Render a small controls panel to remap keys
+        renderControlsUI() {
+            // remove existing
+            let panel = document.getElementById('controls-panel');
+            if (panel) panel.parentNode.removeChild(panel);
+            panel = document.createElement('div'); panel.id = 'controls-panel';
+            panel.style.position = 'fixed'; panel.style.right = '10px'; panel.style.top = '10px';
+            panel.style.background = 'rgba(0,0,0,0.35)'; panel.style.color = '#fff'; panel.style.padding = '6px';
+            panel.style.borderRadius = '6px'; panel.style.fontFamily = 'sans-serif'; panel.style.fontSize = '12px';
+            panel.style.zIndex = 9999; panel.style.minWidth = '120px'; panel.style.maxWidth = '140px';
+            const makeBtn = (label, playerKey, action) => {
+                const btn = document.createElement('button');
+                btn.textContent = label; btn.style.background = '#222'; btn.style.color = '#fff';
+                btn.style.border = '1px solid rgba(255,255,255,0.06)'; btn.style.padding = '4px 6px'; btn.style.borderRadius = '4px';
+                btn.style.fontSize = '11px'; btn.onclick = () => this._startRemap(playerKey, action, btn);
+                return btn;
+            };
+            const title = document.createElement('div'); title.textContent = 'Teclas (compacto)'; title.style.fontWeight = '700'; title.style.marginBottom = '6px'; title.style.fontSize = '12px';
+            panel.appendChild(title);
+            const row1 = document.createElement('div'); row1.style.display = 'flex'; row1.style.justifyContent = 'space-between'; row1.style.gap = '6px';
+            row1.appendChild(makeBtn('P1 H', 'p1', 'ability'));
+            row1.appendChild(makeBtn('P1 E', 'p1', 'pickup'));
+            panel.appendChild(row1);
+            const row2 = document.createElement('div'); row2.style.display = 'flex'; row2.style.justifyContent = 'space-between'; row2.style.gap = '6px'; row2.style.marginTop = '6px';
+            row2.appendChild(makeBtn('P2 H', 'p2', 'ability'));
+            row2.appendChild(makeBtn('P2 E', 'p2', 'pickup'));
+            panel.appendChild(row2);
+            document.body.appendChild(panel);
+        }
+
+        // Create ability HUD elements (icons + cooldown overlay)
+        createAbilityUI() {
+            const hudLeft = document.getElementById('hud-left') || document.getElementById('hud');
+            if (!hudLeft) return;
+            // remove if exists
+            const existing = document.getElementById('ability-panel');
+            if (existing) existing.parentNode.removeChild(existing);
+            const panel = document.createElement('div'); panel.id = 'ability-panel';
+            panel.style.display = 'flex'; panel.style.flexDirection = 'column'; panel.style.gap = '6px';
+            panel.style.marginTop = '6px';
+            const makeAbilitySlot = (id) => {
+                const slot = document.createElement('div'); slot.className = 'ability-slot';
+                slot.style.position = 'relative'; slot.style.width = '44px'; slot.style.height = '44px';
+                slot.style.border = '1px solid rgba(255,255,255,0.08)'; slot.style.borderRadius = '6px';
+                slot.style.background = 'rgba(0,0,0,0.35)';
+                const img = document.createElement('img'); img.id = id + '-img'; img.style.width = '100%'; img.style.height = '100%'; img.style.objectFit = 'cover'; img.style.borderRadius = '6px';
+                const overlay = document.createElement('div'); overlay.id = id + '-ov';
+                overlay.style.position = 'absolute'; overlay.style.left = '0'; overlay.style.top = '0'; overlay.style.width = '100%'; overlay.style.height = '0%'; overlay.style.background = 'rgba(0,0,0,0.6)'; overlay.style.borderRadius = '6px';
+                overlay.style.pointerEvents = 'none';
+                slot.appendChild(img); slot.appendChild(overlay);
+                return slot;
+            };
+            const p1slot = makeAbilitySlot('ability-p1');
+            panel.appendChild(p1slot);
+            hudLeft.appendChild(panel);
+        }
+
+        // Create side panel showing ability name/description and active state
+        createAbilityInfoUI() {
+            // single compact slot showing current player's ability info
+            const existing = document.getElementById('ability-info');
+            if (existing) existing.parentNode.removeChild(existing);
+            const container = document.createElement('div'); container.id = 'ability-info';
+            container.style.position = 'fixed'; container.style.left = '12px'; container.style.top = '12px';
+            container.style.background = 'rgba(0,0,0,0.25)'; container.style.color = '#fff'; container.style.padding = '6px';
+            container.style.borderRadius = '6px'; container.style.fontFamily = 'sans-serif'; container.style.fontSize = '12px';
+            container.style.zIndex = 9999; container.style.minWidth = '160px';
+            const title = document.createElement('div'); title.textContent = 'Habilidad'; title.style.fontWeight = '700'; title.style.marginBottom = '6px'; title.style.fontSize = '12px';
+            container.appendChild(title);
+            const row = document.createElement('div'); row.style.display = 'flex'; row.style.alignItems = 'center'; row.style.gap = '8px';
+            const icon = document.createElement('img'); icon.id = 'ability-info-icon'; icon.style.width = '36px'; icon.style.height = '36px'; icon.style.borderRadius = '6px'; icon.style.objectFit = 'cover';
+            const info = document.createElement('div'); info.style.flex = '1';
+            const name = document.createElement('div'); name.id = 'ability-info-name'; name.textContent = '-'; name.style.fontWeight = '600'; name.style.fontSize = '13px';
+            const desc = document.createElement('div'); desc.id = 'ability-info-desc'; desc.textContent = ''; desc.style.fontSize = '11px'; desc.style.opacity = '0.95';
+            const dmg = document.createElement('div'); dmg.id = 'ability-info-dmg'; dmg.textContent = ''; dmg.style.fontSize = '11px'; dmg.style.opacity = '0.9';
+            info.appendChild(name); info.appendChild(desc); info.appendChild(dmg);
+            const dot = document.createElement('div'); dot.id = 'ability-info-dot'; dot.style.width = '12px'; dot.style.height = '12px'; dot.style.borderRadius = '6px'; dot.style.background = 'rgba(255,255,255,0.06)';
+            row.appendChild(icon); row.appendChild(info); row.appendChild(dot);
+            container.appendChild(row);
+            document.body.appendChild(container);
+        }
+
+        updateAbilityInfoUI() {
+            try {
+                const icon = document.getElementById('ability-info-icon');
+                const name = document.getElementById('ability-info-name');
+                const desc = document.getElementById('ability-info-desc');
+                const dmg = document.getElementById('ability-info-dmg');
+                const dot = document.getElementById('ability-info-dot');
+                if (!icon || !name || !desc || !dmg || !dot) return;
+                const p = this.p1 || this.players[0];
+                if (!p) return;
+                const wc = WEAPON_DATA[p.weapon] || {};
+                const src = (IMG[p.weapon] && IMG[p.weapon].src) || '';
+                if (icon.src !== src) icon.src = src;
+                name.textContent = wc.label || p.weapon || '-';
+                desc.textContent = wc.abilityDesc || '';
+                const pow = (wc.abilityPower || 0) * p.dmg || 0;
+                dmg.textContent = pow > 0 ? `Daño habilidad: ${Math.round(pow)}` : '';
+                if (p._abilityActive && Date.now() < p._abilityActive.until) {
+                    dot.style.background = p._abilityActive.color || '#fff0b0';
+                    dot.style.boxShadow = `0 0 8px ${p._abilityActive.color || '#fff0b0'}`;
+                } else {
+                    dot.style.background = 'rgba(255,255,255,0.06)'; dot.style.boxShadow = 'none';
+                }
+            } catch (e) {}
+        }
+
+        // Update ability UI each frame
+        updateAbilityUI() {
+            try {
+                // single P1 slot
+                const p1img = document.getElementById('ability-p1-img');
+                const p1ov = document.getElementById('ability-p1-ov');
+                const p = this.p1 || this.players[0];
+                if (p && p1img && p1ov) {
+                    const src = (IMG[p.weapon] && IMG[p.weapon].src) || '';
+                    if (p1img.src !== src) p1img.src = src;
+                    const cd = p.abilityCooldown || DEFAULT_ABILITY_CD;
+                    const rem = p.abilityCdTimer || 0;
+                    const pct = Math.min(1, rem / cd);
+                    p1ov.style.height = (pct * 100) + '%';
+                }
+            } catch (e) { /* fail silently */ }
+        }
+
+        _startRemap(playerKey, action, btn) {
+            btn.textContent = '...';
+            const handler = (e) => {
+                const k = (e.key || '').toLowerCase();
+                this.controls[playerKey][action] = k;
+                this._saveControls();
+                btn.textContent = k.toUpperCase();
+                window.removeEventListener('keydown', handler);
+            };
+            window.addEventListener('keydown', handler);
         }
 
         loop() {
@@ -1578,10 +1839,14 @@
             // Increased attack frequency: 60%
             if (distToTarget < e.atkRange * AUTO_ATK_MULT && Math.random() < 0.6) {
                 if (e.attack()) {
+                    // weapon onAttack hook
+                    if (window.Weapons && window.Weapons.onAttack) window.Weapons.onAttack(e.weapon, e, this);
                     const dmg = e.dmg;
                     // Slightly increase effective hit range to match visual overlap
                     if (distToTarget < e.atkRange * 1.1) {
                         target.takeDamage(dmg, e);
+                        // weapon onHit hook
+                        if (window.Weapons && window.Weapons.onHit) window.Weapons.onHit(e.weapon, e, target, this, dmg);
                         this.spawnHitFx(target);
                         const reward = 1 + dmg / 10;
                         if (e.prevState) {
@@ -1606,17 +1871,13 @@
         // ---- INPUT ----
         handleP1Input() {
             const k = this.keys;
+            const map = (this.controls && this.controls.p1) ? this.controls.p1 : { up: 'w', down: 's', left: 'a', right: 'd', dash: ' ', ability: 'q', pickup: 'e' };
             let dx = 0, dy = 0;
-            if (k['w'] || k['arrowup'] && this.mode === 'solo') dy--;
-            if (k['s'] || k['arrowdown'] && this.mode === 'solo') dy++;
-            if (k['a'] || k['arrowleft'] && this.mode === 'solo') dx--;
-            if (k['d'] || k['arrowright'] && this.mode === 'solo') dx++;
-            // for non-solo, only WASD for P1
-            if (this.mode !== 'solo') {
-                dx = 0; dy = 0;
-                if (k['w']) dy--;  if (k['s']) dy++;
-                if (k['a']) dx--;  if (k['d']) dx++;
-            }
+            // movement mapping respects solo vs coop: allow arrow keys too in solo
+            if (k[map.up] || (this.mode === 'solo' && k['arrowup'])) dy--;
+            if (k[map.down] || (this.mode === 'solo' && k['arrowdown'])) dy++;
+            if (k[map.left] || (this.mode === 'solo' && k['arrowleft'])) dx--;
+            if (k[map.right] || (this.mode === 'solo' && k['arrowright'])) dx++;
             if (dx || dy) { const m = Math.hypot(dx, dy); this.p1.vx = dx / m; this.p1.vy = dy / m; }
             else { this.p1.vx = 0; this.p1.vy = 0; }
             // angle to mouse
@@ -1628,8 +1889,12 @@
             const nearest = this.nearestEnemy(this.p1);
             if (this.settings.autoAttack && nearest && dist(this.p1, nearest) < this.p1.atkRange * AUTO_ATK_MULT) {
                 if (this.p1.attack()) {
+                    // weapon onAttack hook
+                    if (window.Weapons && window.Weapons.onAttack) window.Weapons.onAttack(this.p1.weapon, this.p1, this);
                     if (dist(this.p1, nearest) < this.p1.atkRange) {
                         nearest.takeDamage(this.p1.dmg, this.p1);
+                        // weapon onHit hook
+                        if (window.Weapons && window.Weapons.onHit) window.Weapons.onHit(this.p1.weapon, this.p1, nearest, this, this.p1.dmg);
                         this.spawnHitFx(nearest);
                         if (!nearest.alive) {
                             this.onEnemyKill(nearest, this.p1);
@@ -1642,24 +1907,52 @@
                 const ne = this.nearestEnemy(this.p1);
                 if (ne && dist(this.p1, ne) < this.p1.atkRange) {
                     if (this.p1.attack()) {
+                        // onAttack hook
+                        if (window.Weapons && window.Weapons.onAttack) window.Weapons.onAttack(this.p1.weapon, this.p1, this);
                         ne.takeDamage(this.p1.dmg, this.p1);
+                        if (window.Weapons && window.Weapons.onHit) window.Weapons.onHit(this.p1.weapon, this.p1, ne, this, this.p1.dmg);
+                        const now = Date.now();
+
+                    if (now - this.lastHitTime < 800) {
+                        this.combo++;
+                    } else {
+                            this.combo = 1;
+                    }
+
+this.lastHitTime = now;
+
+ne.takeDamage(this.p1.dmg * comboBonus, this.p1);
+// bonus damage por combo
+const comboBonus = 1 + (this.combo * 0.08);
+ne.takeDamage(this.p1.dmg * comboBonus, this.p1);
+if (window.Weapons && window.Weapons.onHit) window.Weapons.onHit(this.p1.weapon, this.p1, ne, this, this.p1.dmg * comboBonus);
+
+// feedback visual
+this.texts.push(
+   new FloatingText(ne.x, ne.y - 30, "x"+this.combo, "#ff8800")
+);
+
+
                         this.spawnHitFx(ne);
                         if (!ne.alive) this.onEnemyKill(ne, this.p1);
                     }
                 }
             }
             // dash
-            if (k[' ']) this.p1.dash();
-            // pickup
-            if (k['e']) this.tryPickup(this.p1);
+            if (k[map.dash] || k[' ']) this.p1.dash();
+            this.invulnerableUntil = Date.now() + 200;
+            if (Date.now() < this.invulnerableUntil) return;
+            // pickup (also handled on keydown in _onKey)
+            if (k[map.pickup]) this.tryPickup(this.p1);
         }
 
         handleP2Input() {
             if (!this.p2 || !this.p2.alive) return;
             const k = this.keys;
+            const map = (this.controls && this.controls.p2) ? this.controls.p2 : { up: 'arrowup', down: 'arrowdown', left: 'arrowleft', right: 'arrowright', dash: 'enter', ability: '/', pickup: '/' };
             let dx = 0, dy = 0;
-            if (k['arrowup']) dy--;    if (k['arrowdown']) dy++;
-            if (k['arrowleft']) dx--;  if (k['arrowright']) dx++;
+            if (k[map.up]) dy--;    if (k[map.down]) dy++;
+            if (k[map.left]) dx--;  if (k[map.right]) dx++;
             if (dx || dy) { const m = Math.hypot(dx, dy); this.p2.vx = dx / m; this.p2.vy = dy / m; }
             else { this.p2.vx = 0; this.p2.vy = 0; }
             // face nearest enemy
@@ -1668,17 +1961,21 @@
             // auto-attack
             if (this.settings.autoAttack && ne && dist(this.p2, ne) < this.p2.atkRange * AUTO_ATK_MULT) {
                 if (this.p2.attack()) {
+                    // onAttack hook
+                    if (window.Weapons && window.Weapons.onAttack) window.Weapons.onAttack(this.p2.weapon, this.p2, this);
                     if (dist(this.p2, ne) < this.p2.atkRange) {
                         ne.takeDamage(this.p2.dmg, this.p2);
+                        // onHit
+                        if (window.Weapons && window.Weapons.onHit) window.Weapons.onHit(this.p2.weapon, this.p2, ne, this, this.p2.dmg);
                         this.spawnHitFx(ne);
                         if (!ne.alive) this.onEnemyKill(ne, this.p2);
                     }
                 }
             }
             // dash
-            if (k['enter']) this.p2.dash();
-            // pickup
-            if (k['/']) this.tryPickup(this.p2);
+            if (k[map.dash]) this.p2.dash();
+            // pickup (also handled on keydown in _onKey)
+            if (k[map.pickup]) this.tryPickup(this.p2);
         }
 
         nearestEnemy(player) {
@@ -1692,17 +1989,21 @@
         }
 
         onEnemyKill(enemy, killer) {
+            killer.momentum += 0.05;
+            killer.momentum = Math.min(killer.momentum, 2);
             killer.kills++;
             const pts = enemy.isBoss ? 500 : 100;
             killer.score += pts;
             this.texts.push(new FloatingText(enemy.x, enemy.y - 20, `+${pts}`, '#ff0'));
+            // weapon onKill hook
+            if (window.Weapons && window.Weapons.onKill) window.Weapons.onKill(killer.weapon, killer, enemy, this);
             sharedQL.decayEpsilon();
             // negative reward for dying
             if (enemy.prevState) {
                 sharedQL.update(enemy.prevState, enemy.prevAction, -2, enemy.prevState);
             }
-            // weapon drop
-            if (Math.random() < 0.3) {
+            // weapon drop: ensure enemy's weapon is dropped so players can pick up
+            if (enemy && enemy.weapon) {
                 this.drops.push(new WeaponDrop(enemy.x, enemy.y, enemy.weapon));
             }
             this.enemiesAlive--;
@@ -1713,6 +2014,10 @@
             for (let i = this.drops.length - 1; i >= 0; i--) {
                 if (dist(player, this.drops[i]) < PICKUP_RANGE) {
                     player.weapon = this.drops[i].weapon;
+                    // update ability cooldown value for new weapon and reset timer
+                    player.abilityCooldown = (WEAPON_DATA[player.weapon] && WEAPON_DATA[player.weapon].abilityCd) || DEFAULT_ABILITY_CD;
+                    player.abilityCdTimer = 0;
+                    player._abilityActive = null;
                     this.texts.push(new FloatingText(player.x, player.y - 20, WEAPON_DATA[player.weapon].label, '#0ff'));
                     this.drops.splice(i, 1);
                     return;
@@ -1731,9 +2036,23 @@
         }
 
         spawnHitFx(target) {
-            const color = target.isPlayer ? '#f44' : '#ff0';
-            for (let i = 0; i < 6; i++) this.particles.push(new Particle(target.x, target.y, color));
+
+            const color = target.isPlayer ? '#ff2222' : '#ffff00';
+
+                // Spawn particles but respect a global cap to avoid explosion
+                const space = Math.max(0, MAX_PARTICLES - this.particles.length);
+                const toSpawn = Math.min(PARTICLES_PER_HIT, space);
+                for (let i = 0; i < toSpawn; i++) {
+                    const p = new Particle(target.x, target.y, color);
+                    p.vx *= 2; p.vy *= 2;
+                    this.particles.push(p);
+                }
+
+            // mini shake
+            this.cam.x += rand(-5,5);
+            this.cam.y += rand(-5,5);
         }
+
 
         // ---- ONLINE SYNC ----
         onNetMessage(msg) {
@@ -1854,14 +2173,42 @@
 
         // ---- UPDATE ----
         update(dt) {
+            // aplicar stagger
+            if (this.staggerTimer > 0) {
+                this.staggerTimer--;   // mucho más rápido
+
+
+            // empuje ligero
+            this.velocity.x += this.staggerForceX;
+
+            // reducir control del jugador (feeling hit)
+            this.velocity.x *= 0.85;
+        } else {
+            this.staggerForceX = 0;
+        }
+
             if (this.mode === 'online_guest') {
                 // Guest: send inputs, apply remote state, render + HUD
                 this.sendGuestInput();
                 this.applyRemoteState();
                 this.particles.forEach(p => p.update());
-                this.particles = this.particles.filter(p => p.life > 0);
+                // compact particles in-place to avoid allocations
+                let pj = 0;
+                for (let pi = 0; pi < this.particles.length; pi++) {
+                    const pp = this.particles[pi];
+                    if (pp.life > 0) this.particles[pj++] = pp;
+                }
+                this.particles.length = pj;
+                if (this.particles.length > MAX_PARTICLES) this.particles.length = MAX_PARTICLES;
                 this.texts.forEach(t => t.update());
-                this.texts = this.texts.filter(t => t.life > 0);
+                // compact texts in-place and cap
+                let tj = 0;
+                for (let ti = 0; ti < this.texts.length; ti++) {
+                    const tt = this.texts[ti];
+                    if (tt.life > 0) this.texts[tj++] = tt;
+                }
+                this.texts.length = tj;
+                if (this.texts.length > MAX_TEXTS) this.texts.splice(0, this.texts.length - MAX_TEXTS);
 
                 // Guest HUD
                 if (this.players[this.mySlot]) {
@@ -1920,8 +2267,12 @@
                         // Auto-attack
                         if (dist(rp, ne) < rp.atkRange * AUTO_ATK_MULT) {
                             if (rp.attack()) {
+                                // weapon onAttack
+                                if (window.Weapons && window.Weapons.onAttack) window.Weapons.onAttack(rp.weapon, rp, this);
                                 if (dist(rp, ne) < rp.atkRange) {
                                     ne.takeDamage(rp.dmg, rp);
+                                    // weapon onHit
+                                    if (window.Weapons && window.Weapons.onHit) window.Weapons.onHit(rp.weapon, rp, ne, this, rp.dmg);
                                     this.spawnHitFx(ne);
                                     if (!ne.alive) this.onEnemyKill(ne, rp);
                                 }
@@ -1932,17 +2283,61 @@
             }
 
             // update all players
-            for (const p of this.players) {
+        for (const p of this.players) {
                 if (!p.alive) continue;
-                p.update(dt, this.structures);
-                p.x = clamp(p.x, p.radius, this.arenaW - p.radius);
-                p.y = clamp(p.y, p.radius, this.arenaH - p.radius);
+
+            // =====================
+            // MODO COMBATE PRO (momentum speed)
+            // =====================
+
+            p.momentum = p.momentum || 1;
+
+            if (p.attacking) {
+                p.momentum = Math.min(2, p.momentum + 0.15);
+            } else {
+            p.momentum = Math.max(1, p.momentum - 0.05);
             }
+
+            p.speed = PLAYER_SPEED * p.momentum;
+
+            // =====================
+
+            p.update(dt, this.structures);
+
+            p.x = clamp(p.x, p.radius, this.arenaW - p.radius);
+            p.y = clamp(p.y, p.radius, this.arenaH - p.radius);
+}
+
 
             // enemies
             for (const e of this.enemies) {
                 if (!e.alive) continue;
                 this.updateEnemyAI(e, dt);
+                const player = this.players.find(p => p.alive);
+
+            if (player) {
+
+                const distToPlayer = dist(e, player);
+
+            if (distToPlayer < 120) {
+
+                if (!e._rage) {
+                    e._rage = true;
+                    e.radius *= 1.1; // efecto visual simple
+                }
+
+            } else {
+
+                if (e._rage) {
+                        e._rage = false;
+                        e.radius /= 1.1;
+                    }
+            }
+        }
+
+
+    e.update(dt, this.structures);
+
                 e.update(dt, this.structures);
                 // arena edge — just clamp, flag collision
                 const preX = e.x, preY = e.y;
@@ -1990,9 +2385,23 @@
             this.powerups.forEach(p => p.update());
             this.rewardOrbs.forEach(o => o.update());
             this.particles.forEach(p => p.update());
-            this.particles = this.particles.filter(p => p.life > 0);
+            // compact particles in-place
+            let pj2 = 0;
+            for (let pi2 = 0; pi2 < this.particles.length; pi2++) {
+                const pp2 = this.particles[pi2];
+                if (pp2.life > 0) this.particles[pj2++] = pp2;
+            }
+            this.particles.length = pj2;
+            if (this.particles.length > MAX_PARTICLES) this.particles.length = MAX_PARTICLES;
             this.texts.forEach(t => t.update());
-            this.texts = this.texts.filter(t => t.life > 0);
+            // compact texts in-place and cap
+            let tj2 = 0;
+            for (let ti2 = 0; ti2 < this.texts.length; ti2++) {
+                const tt2 = this.texts[ti2];
+                if (tt2.life > 0) this.texts[tj2++] = tt2;
+            }
+            this.texts.length = tj2;
+            if (this.texts.length > MAX_TEXTS) this.texts.splice(0, this.texts.length - MAX_TEXTS);
 
             // HUD
             const hpPct = this.p1.hp / this.p1.maxHp * 100;
@@ -2129,6 +2538,9 @@
             // fx
             this.particles.forEach(p => p.draw(ctx, c));
             this.texts.forEach(t => t.draw(ctx, c));
+            // ability UI update (DOM)
+            try { this.updateAbilityUI(); } catch (e) {}
+            try { this.updateAbilityInfoUI(); } catch (e) {}
         }
 
         // ---- GAME OVER ----
@@ -2397,14 +2809,21 @@
 
                 // combat
                 if (bd < f.atkRange * AUTO_ATK_MULT && f.attack()) {
+                    // onAttack hook for training fighter
+                    if (window.Weapons && window.Weapons.onAttack) window.Weapons.onAttack(f.weapon, f, this);
                     if (bd < f.atkRange) {
                         target.takeDamage(f.dmg, f);
+                        // onHit
+                        if (window.Weapons && window.Weapons.onHit) window.Weapons.onHit(f.weapon, f, target, this, f.dmg);
                         const reward = target.alive ? 1 : 5;
                         this.totalReward += reward;
                         const s2 = sharedQL.stateKey(f, target, this.structures, this.hazards, this.arenaW, this.arenaH);
                         sharedQL.update(s, action, reward, s2);
                         if (this.speed <= 2) {
-                            this.particles.push(new Particle(target.x, target.y, '#ff0'));
+                            this.particles.push(new Particle(target.x, target.y, `rgba(${150+Math.random()*70},
+                            ${150+Math.random()*70},
+                            ${150+Math.random()*70},
+                            0.9)`));
                             this.particles.push(new Particle(target.x, target.y, '#f80'));
                         }
                         if (!target.alive && target.prevState) {
@@ -2435,7 +2854,14 @@
             // update particles and orbs
             if (this.speed <= 2) {
                 this.particles.forEach(p => p.update());
-                this.particles = this.particles.filter(p => p.life > 0);
+                // compact particles in-place to avoid allocations
+                let pj3 = 0;
+                for (let pi3 = 0; pi3 < this.particles.length; pi3++) {
+                    const pp3 = this.particles[pi3];
+                    if (pp3.life > 0) this.particles[pj3++] = pp3;
+                }
+                this.particles.length = pj3;
+                if (this.particles.length > MAX_PARTICLES) this.particles.length = MAX_PARTICLES;
                 this.rewardOrbs.forEach(o => o.update());
             } else {
                 this.particles = [];
