@@ -980,7 +980,7 @@
                 const wOff = this.radius + 10;
                 const swing = this.attacking ? Math.sin(this.attackTimer / 50) * 0.8 : 0;
                 ctx.rotate(swing);
-                ctx.drawImage(wImg, wOff - 12, -12, 24, 24);
+                ctx.drawImage(wImg, wOff - 16, -16, 56, 56);
                 ctx.restore();
             }
             // hp bar
